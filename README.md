@@ -67,7 +67,7 @@ Developed by Faiza Hasin for explainability analysis of CRISPR-Cas9 cleavage pre
 Special thanks to the authors of CRISPRedict and SHAP for foundational tools.
 suport:
 If you have any other questions, please contact us at
-faiza.hasin@uniba.it ot faizamaqsood782@gmail.com
+faiza.hasin@uniba.it or faizamaqsood782@gmail.com
 
 
 
