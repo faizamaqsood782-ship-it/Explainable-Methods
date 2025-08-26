@@ -13,7 +13,7 @@ Explainable-Methods/
 ├── data/
 │ └── 30nt crispredict scores data.csv
 ├── results/
-│ └── crispredict_knockout_results_with_shap.xlsx
+│ └── prediction_scores_with_shap_values
 └── README.md
 
 
@@ -46,7 +46,7 @@ The output file contains:
 - Predicted cleavage scores
 - SHAP values for all important features
 
- Located in: `results/crispredict_knockout_results_with_shap.xlsx`
+ Located in: `results/prediction_scores_with_shap_values`
 
 ---
 
