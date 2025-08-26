@@ -11,7 +11,7 @@ Explainable-Methods/
 ├── crispredict_knockout_prediction_and_explainability.ipynb
 ├── requirements.txt
 ├── data/
-│ └── 30nt crispredict scores data.xlsx
+│ └── 30nt crispredict scores data.csv
 ├── results/
 │ └── crispredict_knockout_results_with_shap.xlsx
 └── README.md
@@ -22,7 +22,7 @@ Explainable-Methods/
 ##  Dataset
 
 The dataset used in this analysis is the **Knockout dataset**, containing 30-nt sequences and associated scores.  
-You can find it under: `data/30nt crispredict scores data.xlsx`
+You can find it under: `data/30nt crispredict scores data.csv`
 
 ---
 
