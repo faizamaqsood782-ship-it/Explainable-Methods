@@ -1,5 +1,5 @@
 # Explainable-Methods
-Explainable Methods
+
 # CRISPRedict: Prediction and Explainability on Knockout Dataset
 
 This repository contains a reproducible pipeline for predicting CRISPR-Cas9 cleavage efficiency and interpreting model predictions using **CRISPRedict** on the **Knockout dataset**. The workflow includes feature extraction, model prediction, and SHAP-based explainability using a trained statsmodels regressor.
