@@ -24,8 +24,8 @@ Explainable-Methods/
 
 ##  Datasets
 
-The dataset used in this analysis is the **Knockout dataset** and **Hanna dataset**,containing 30-nt sequences and associated scores.  
-You can find it under: `data/30nt crispredict scores data.csv`
+The dataset used in this analysis is the **Knockout dataset** and **Hanna dataset**: 
+You can find it under: `data/30nt crispredict scores data.csv`, `63nt CRISPRAidit scores data`, `Prepared_23nt_DeepHF_Input` and  `23nt_CRISPRon_Scores data` for Knockout dataset while `30nt crispredict scores data - Copy - Hanna - Copy`, `63nt CRISPRAidit scores data - Copy - Hanna - Copy`, `Prepared_23nt_DeepHF_Input - Copy-Hanna - Copy` and `30nt_CRISPRon_Scores data - Copy - Hanna - Copy` for Hanna dataset.
 
 ---
 
@@ -33,7 +33,7 @@ You can find it under: `data/30nt crispredict scores data.csv`
 
 The notebook performs the following steps:
 
-1. Load the Knockout dataset  
+1. Load the Knockout and Hanna datasets  
 2. Automatically detect the gRNA sequence column  
 3. Extract CRISPRedict-relevant biological features using `features.py`  
 4. Predict cleavage efficiency scores using a pre-trained statsmodels model  
@@ -49,7 +49,7 @@ The output file contains:
 - Predicted cleavage scores
 - SHAP values for all important features
 
- Located in: `results/prediction_scores_with_shap_values`
+ Located in: `results/prediction_scores_with_shap_values`, `predictions_shap_values_with_all_features`, `Predicted_Efficiencies_Perfect_Match_Final`and `CRISPRon_Predictions_Only_20250430-163131`(these are resuts of crisprEdict, crisprAidit, deep HF and crisprOn respercitively for Knockout dataset). While `CRISPRedict_SHAP_Results`, `predictions_shap_values_with_all_features`, `Predicted_Efficiencies_Perfect_Match_Final` are the results for Hanna dataset resperctively.
 
 ---
 
