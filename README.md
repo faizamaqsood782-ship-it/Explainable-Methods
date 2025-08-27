@@ -9,7 +9,7 @@ This repository contains a reproducible pipeline for predicting CRISPR-Cas9 clea
 ##  Repository Structure
 Explainable-Methods/
 ├── crispredict_knockout_prediction_and_explainability.ipynb
-└──  crisprAidit_prediction_and_explainability.ipynb (1).ipynb
+└──  crisprAidit Knockout_prediction_and_explainability.ipynb (1).ipynb
 ├── requirements.txt
 ├── data/
 │ └── 30nt crispredict scores data.csv
