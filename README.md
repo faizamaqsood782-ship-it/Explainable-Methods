@@ -2,7 +2,7 @@
 
 # CRISPRedict: Prediction and Explainability on Knockout Dataset
 
-This repository contains a reproducible pipeline for predicting CRISPR-Cas9 cleavage efficiency and interpreting model predictions using **CRISPRedict** on the **Knockout dataset**. The workflow includes feature extraction, model prediction, and SHAP-based explainability using a trained statsmodels regressor.
+This repository contains a reproducible pipeline for predicting CRISPR-Cas9 cleavage efficiency and interpreting model predictions using CRISPRedict, CRISPRAidit, DeepHF and CRISPROn on the **Knockout dataset** and **Hanna dataset**. The workflow includes feature extraction, model prediction, and SHAP-based explainability using a trained statsmodels regressor.
 
 ---
 
@@ -12,16 +12,18 @@ Explainable-Methods/
 ├── requirements.txt
 ├── data/
 │ └── 30nt crispredict scores data.csv
+└──   63nt CRISPRAidit scores data
 ├── results/
 │ └── prediction_scores_with_shap_values
+└──predictions_shap_values_with_all_features
 └── README.md
 
 
 ---
 
-##  Dataset
+##  Datasets
 
-The dataset used in this analysis is the **Knockout dataset**, containing 30-nt sequences and associated scores.  
+The dataset used in this analysis is the **Knockout dataset** and **Hanna dataset**,containing 30-nt sequences and associated scores.  
 You can find it under: `data/30nt crispredict scores data.csv`
 
 ---
