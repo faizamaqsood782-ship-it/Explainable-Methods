@@ -22,6 +22,7 @@ matplotlib==3.3.4
 seaborn==0.11.1
 statsmodels==0.12.2
 xlrd==1.2.0
+shap
 
 python=3.6.5
 numpy=1.14.0
@@ -36,6 +37,8 @@ matplotlib
 DotMap
 GPyOpt
 pandas
+shap
+
 
 
 
