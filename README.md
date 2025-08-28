@@ -55,16 +55,15 @@ The output file contains:
 
 ##  How to Run
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/faizamaqsood782-ship-it/Explainable-Methods.git
-   cd Explainable-Methods
-    ## Requirements
+## Requirements
 Python version: 3.7.12
-Required libraries are listed in requirements.txt
+Required libraries for crisprEdict, crisprAidit, deepHF and crisprOn  are listed in requirements.txt
 Citation:
 **CRISPRedict (original tool):**  
-Konstantakos, V., Nentidis, A., Krithara, A., & Paliouras, G. (2022). *CRISPRedict: a CRISPR‑Cas9 web tool for interpretable efficiency predictions*.
+1. Konstantakos, V., Nentidis, A., Krithara, A., & Paliouras, G. (2022). *CRISPRedict: a CRISPR‑Cas9 web tool for interpretable efficiency predictions*.
+2. Heng Zhang, Jianfeng Yan, Zhike Lu and Lija Ma et al. (2023).  *Deep sampling of gRNA in the human genom and deep-learning-informed prediction of gRNA activities*.
+3. Daqi Wang, Chengdong Zhang et al. (2019).  *Optimized CRISPR guide RNA design for two high-fidelity Cas9 variants by deep learning *.
+4. Xi Xiang, Zhangying Dong, Lijun Liu et al. (2021). *Enhancing CRISPR-Cas9 gRNA efficiency prediction by data integration and deep learning*.
 Acknowledgments
 Developed by Faiza Hasin for explainability analysis of CRISPR-Cas9 cleavage prediction.
 Special thanks to the authors of CRISPRedict and SHAP for foundational tools.
