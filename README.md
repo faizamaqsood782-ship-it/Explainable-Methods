@@ -35,7 +35,7 @@ The notebook performs the following steps:
 
 1. Load the Knockout and Hanna datasets  
 2. Automatically detect the gRNA sequence column  
-3. Extract CRISPRedict-relevant biological features using `features.py`  
+3. Extract CRISPRedict, CRISPRAidit, deepHF and CRISPROn relevant biological features using original `features.py` logic.
 4. Predict cleavage efficiency scores using a pre-trained statsmodels model  
 5. Use SHAP to explain the contribution of each feature to the predicted outcome  
 6. Save the results with prediction scores and SHAP values
