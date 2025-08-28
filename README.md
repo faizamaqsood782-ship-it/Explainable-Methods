@@ -67,7 +67,7 @@ Citation:
 Acknowledgments
 
 Developed by Faiza Hasin for explainability analysis of CRISPR-Cas9 cleavage prediction.
-Special thanks to the authors of CRISPRedict and SHAP for foundational tools.
+Special thanks to the authors of CRISPRedict, CRISPRAidit, deepHF and CRISPROn.
 suport:
 If you have any other questions, please contact us at
 faiza.hasin@uniba.it or faizamaqsood782@gmail.com
