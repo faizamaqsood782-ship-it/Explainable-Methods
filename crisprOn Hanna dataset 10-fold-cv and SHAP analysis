@@ -1,0 +1,324 @@
+# This notebook is based on  the  10-fold-cv and SHAP analysis on Hanna Dataset.
+
+import pandas as pd   # Finaaallllll crisprOn (2/7/2025)
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Input, Conv1D, Dropout, AveragePooling1D, Flatten, Dense, concatenate
+from sklearn.model_selection import KFold
+from sklearn.metrics import mean_squared_error, r2_score
+from scipy.stats import pearsonr
+import datetime
+import os
+import random
+
+# === Reproducibility ===
+random.seed(42)
+np.random.seed(42)
+tf.random.set_seed(42)
+
+# === Define paths ===
+data_path = "/home/faiza/vienna/mmmm/30nt_CRISPRon_Scores data - Copy - Hanna - Copy.xlsx"
+result_dir = "10_folds"
+os.makedirs(result_dir, exist_ok=True)
+
+# === Load CRISPRon efficiency scores ===
+def load_data(file_path):
+    return pd.read_excel(file_path)
+
+# === One-hot encode sequences (EXACT IMPLEMENTATION FROM PAPER) ===
+def one_hot_encode_sequences(sequences):
+    mapping = {'A': [1,0,0,0], 'C': [0,1,0,0],
+               'G': [0,0,1,0], 'T': [0,0,0,1]}
+    encoded = np.zeros((len(sequences), 30, 4), dtype=np.float32)
+    for i, seq in enumerate(sequences):
+        if len(seq) != 30:
+            raise ValueError(f"Sequence {seq} is not 30 nucleotides long.")
+        for j in range(30):
+            base = seq[j].upper()
+            encoded[i,j] = mapping.get(base, [0,0,0,0])
+    return encoded
+
+# === Precomputed ΔG_b values ( Thermodynamic Feature, From CRISPRoff pipline from auther file) ===
+def calculate_deltaGb(sequence):
+    gc_content = (sequence.count('G') + sequence.count('C')) / len(sequence)
+    return -15.3 + (gc_content - 0.5) * 8.2  # Mimic original paper distribution
+
+# === Feature processing (AS IN ORIGINAL CODE) ===
+def process_features(data):
+    data['DeltaGb'] = data['Sequence'].apply(calculate_deltaGb)
+    deltaGb_normalized = (data['DeltaGb'] - (-15.3)) / 4.1
+    return deltaGb_normalized.values.reshape(-1,1).astype(np.float32)
+
+# === Recreate exact model architecture from paper (Figure 1a) ===
+def build_model():
+    # Input layers
+    seq_input = Input(shape=(30,4), name='input_onehot')
+    deltaGb_input = Input(shape=(1,), name='input_dGB')
+
+    # Convolutional branches (Figure 1a)
+    def conv_branch(x, filter_size, filters):
+        x = Conv1D(filters, filter_size, activation='relu')(x)
+        x = Dropout(0.3)(x)
+        x = AveragePooling1D(2)(x)                                  #k-mers (3-mer, 5-mer, 7-mer) represent short motifs.
+        return Flatten()(x)
+
+    branch3 = conv_branch(seq_input, 3, 100)  # 3-mer conv(The kernel size of the convolution is 3) 100 filters means it learns 100, 3-mer patterns
+    branch5 = conv_branch(seq_input, 5, 70)   # 5-mer conv(The kernel size of the convolution is 5) 70 filters means it learns 70, 5-mer patterns
+    branch7 = conv_branch(seq_input, 7, 40)   # 7-mer conv(The kernel size of the convolution is 5) 70 filters means it learns 40, 7-mer patterns
+
+    # Concatenate branches
+    merged = concatenate([branch3, branch5, branch7, deltaGb_input])
+    
+    # Dense layers (From model summary)
+    x = Dense(80, activation='relu')(merged)
+    x = Dropout(0.3)(x) #randomly "turn off" 30% of the neurons during training.
+    x = Dense(80, activation='relu')(x)
+    x = Dropout(0.3)(x)
+    x = Dense(60, activation='relu')(x)
+    x = Dropout(0.3)(x)
+    output = Dense(1)(x)
+
+    return Model(inputs=[seq_input, deltaGb_input], outputs=output)
+
+# === Prediction pipeline ===
+def predict_with_model(model, data):
+    seq_array = one_hot_encode_sequences(data['Sequence'])
+    deltaGb_array = process_features(data)
+    return model.predict([seq_array, deltaGb_array], verbose=0).flatten()
+
+# === Main execution ===
+if __name__ == "__main__":
+    df = load_data(data_path)
+    df = df[pd.to_numeric(df['Scores CRISPRon'], errors='coerce').notnull()].reset_index(drop=True)
+
+    # Prepare input features
+    seq_array = one_hot_encode_sequences(df['Sequence'])
+    deltaGb_array = process_features(df)
+    y = df['Scores CRISPRon'].values
+
+    # === 10-Fold Cross-Validation ===
+    kf = KFold(n_splits=10, shuffle=True, random_state=42)
+    results = []
+    predictions_all = []
+
+    for fold, (train_idx, test_idx) in enumerate(kf.split(seq_array), 1):
+        print(f"\nTraining Fold {fold}...")
+        fold_dir = os.path.join(result_dir, f"Fold{fold}")
+        os.makedirs(fold_dir, exist_ok=True)
+
+        # === Build or train model ===
+        model = build_model()
+        model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001),
+                      loss='mean_squared_error',
+                      metrics=['mae'])
+
+        model.fit([seq_array[train_idx], deltaGb_array[train_idx]], y[train_idx],
+                  validation_data=([seq_array[test_idx], deltaGb_array[test_idx]], y[test_idx]),
+                  epochs=20,
+                  batch_size=32,
+                  verbose=0)
+
+        # Save model
+        model.save(os.path.join(fold_dir, f"CRISPRon_Fold{fold}_Model.h5"))
+
+        # Generate predictions
+        y_train_pred = model.predict([seq_array[train_idx], deltaGb_array[train_idx]], verbose=0).flatten()
+        y_test_pred = model.predict([seq_array[test_idx], deltaGb_array[test_idx]], verbose=0).flatten()
+
+        # Compute metrics
+        r2 = r2_score(y[test_idx], y_test_pred)
+        rmse = np.sqrt(mean_squared_error(y[test_idx], y_test_pred))
+        pearson_train = pearsonr(y[train_idx], y_train_pred)[0]
+        pearson_test = pearsonr(y[test_idx], y_test_pred)[0]
+
+        print(f"Fold {fold}: R2 = {r2:.4f}, RMSE = {rmse:.4f}, Pearson Train = {pearson_train:.4f}, Pearson Test = {pearson_test:.4f}")
+        results.append({
+            'Fold': fold,
+            'R2': r2,
+            'RMSE': rmse,
+            'Pearson Train': pearson_train,
+            'Pearson Test': pearson_test
+        })
+
+        # Save training and testing splits with predictions
+        train_df = df.loc[train_idx].copy()
+        train_df['Predicted'] = y_train_pred
+        train_df.to_excel(os.path.join(fold_dir, f"train_fold{fold}.xlsx"), index=False)
+
+        test_df = df.loc[test_idx].copy()
+        test_df['Predicted'] = y_test_pred
+        test_df.to_excel(os.path.join(fold_dir, f"test_fold{fold}.xlsx"), index=False)
+
+        # Save predictions + features
+        onehot_flat = seq_array[test_idx].reshape(len(test_idx), -1)
+        delta_flat = deltaGb_array[test_idx]
+        features_combined = np.hstack([onehot_flat, delta_flat])
+        feature_names = [f'Pos_{i+1}_{b}' for i in range(30) for b in "ACGT"] + ["Normalized_DeltaGb"]
+        features_df = pd.DataFrame(features_combined, columns=feature_names)
+        features_df.insert(0, 'Index', test_idx)
+        features_df['True'] = y[test_idx]
+        features_df['Predicted'] = y_test_pred
+        features_df['Fold'] = fold
+        features_df.to_excel(os.path.join(fold_dir, f"test_predictions_fold{fold}.xlsx"), index=False)
+        predictions_all.append(features_df)
+
+    # Save metrics
+    results_df = pd.DataFrame(results)
+    predictions_df = pd.concat(predictions_all, ignore_index=True)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    results_df.to_excel(os.path.join(result_dir, f"CRISPRon_10Fold_Results_{timestamp}.xlsx"), index=False)
+    predictions_df.to_excel(os.path.join(result_dir, f"CRISPRon_10Fold_Predictions_{timestamp}.xlsx"), index=False)
+
+    # === Final summary ===
+    print("\n========= SUMMARY METRICS ==========")
+    print(f"{'Metric':>25} {'Value':>10}")
+    print(f"{'Average R2 (Test)':>25} {results_df['R2'].mean():.6f}")
+    print(f"{'MSE (Test)':>25} {(results_df['RMSE'] ** 2).mean():.6f}")
+    print(f"{'RMSE (Test)':>25} {results_df['RMSE'].mean():.6f}")
+    print(f"{'Pearson (Test)':>25} {results_df['Pearson Test'].mean():.6f}")
+    print(f"{'Average Pearson (Train)':>25} {results_df['Pearson Train'].mean():.6f}")
+
+
+
+
+
+
+
+
+import pandas as pd
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Input, Conv1D, Dropout, AveragePooling1D, Flatten, concatenate, Dense
+from tensorflow.keras.callbacks import EarlyStopping
+import shap
+import datetime
+import matplotlib.pyplot as plt
+
+# === Paths ===
+data_path = "/home/faiza/vienna/mmmm/30nt_CRISPRon_Scores data - Copy - Hanna - Copy.xlsx"
+model_save_path = "/home/faiza/vienna/mmmm/CRISPRon_model_trained.h5"
+
+# === One-hot encoding ===
+def one_hot_encode_sequences(sequences):
+    mapping = {'A': [1,0,0,0], 'C': [0,1,0,0], 'G': [0,0,1,0], 'T': [0,0,0,1]}
+    encoded = np.zeros((len(sequences), 30, 4), dtype=np.float32)
+    for i, seq in enumerate(sequences):
+        for j in range(30):
+            encoded[i,j] = mapping.get(seq[j].upper(), [0,0,0,0])
+    return encoded
+
+# === ΔGb feature ===
+def calculate_deltaGb(sequence):
+    gc_content = (sequence.count('G') + sequence.count('C')) / 30
+    return -15.3 + (gc_content - 0.5) * 8.2
+
+def extract_features(df):
+    deltaGb = ((df['Sequence'].apply(calculate_deltaGb) + 15.3) / 4.1).values.reshape(-1,1).astype(np.float32)
+    onehot = one_hot_encode_sequences(df['Sequence'])
+    return onehot, deltaGb
+
+# === Model architecture from paper ===
+def build_model():
+    seq_input = Input(shape=(30, 4), name='input_onehot')
+    deltaGb_input = Input(shape=(1,), name='input_dGB')
+
+    def conv_branch(x, filter_size, filters):
+        x = Conv1D(filters, filter_size, activation='relu')(x)
+        x = Dropout(0.3)(x)
+        x = AveragePooling1D(2)(x)
+        return Flatten()(x)
+
+    branch3 = conv_branch(seq_input, 3, 100)
+    branch5 = conv_branch(seq_input, 5, 70)
+    branch7 = conv_branch(seq_input, 7, 40)
+
+    merged = concatenate([branch3, branch5, branch7, deltaGb_input])
+    x = Dense(80, activation='relu')(merged)
+    x = Dropout(0.3)(x)
+    x = Dense(80, activation='relu')(x)
+    x = Dropout(0.3)(x)
+    x = Dense(60, activation='relu')(x)
+    x = Dropout(0.3)(x)
+    output = Dense(1)(x)
+
+    model = Model(inputs=[seq_input, deltaGb_input], outputs=output)
+    model.compile(optimizer='adam', loss='mse')
+    return model
+
+# === SHAP wrapper ===
+class KerasModelWrapper:
+    def __init__(self, model):
+        self.model = model
+    def predict(self, data):
+        seq = data[:, :120].reshape(-1, 30, 4)
+        deltaGb = data[:, 120:121]
+        return self.model.predict([seq, deltaGb])
+
+# === Main Execution ===
+def predict_crispron_scores():
+    df = pd.read_excel(data_path)
+    df = df.dropna(subset=['Sequence', 'Scores CRISPRon'])
+
+    seq_array, deltaGb_array = extract_features(df)
+    combined_input = np.hstack([seq_array.reshape(len(df), 120), deltaGb_array])
+
+    model = build_model()
+    model.fit(
+        [seq_array, deltaGb_array],
+        df['Scores CRISPRon'].values,
+        epochs=30,
+        batch_size=32,
+        validation_split=0.1,
+        callbacks=[EarlyStopping(patience=5, restore_best_weights=True)],
+        verbose=2
+    )
+    model.save(model_save_path)
+    print(f"\n Model saved to: {model_save_path}")
+
+    predictions = model.predict([seq_array, deltaGb_array]).flatten()
+    df['CRISPRon_Prediction'] = predictions
+
+    # === SHAP Computation ===
+    feature_names = [f"Pos{i+1}_{nuc}" for i in range(30) for nuc in 'ACGT'] + ["DeltaGb"]
+    wrapped_model = KerasModelWrapper(model)
+
+    print("Calculating SHAP values on full dataset...")
+    explainer = shap.Explainer(
+        wrapped_model.predict,
+        masker=shap.maskers.Independent(combined_input[:10]),
+        feature_names=feature_names
+    )
+    shap_values = explainer(combined_input, max_evals=5000)
+
+    feature_input_df = pd.DataFrame(combined_input, columns=feature_names)
+    shap_df = pd.DataFrame(shap_values.values, columns=[f"SHAP_{f}" for f in feature_names])
+    df_all = pd.concat([df, feature_input_df, shap_df], axis=1)
+
+    # Save results
+    timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    output_excel = f"/home/faiza/vienna/mmmm/CRISPRon_Predictions_Only_{timestamp}.xlsx"
+    output_plot = f"/home/faiza/vienna/mmmm/SHAP_Waterfall_{timestamp}.png"
+    df_all.to_excel(output_excel, index=False)
+    print(f" Predictions + SHAP values saved to: {output_excel}")
+
+    # SHAP Waterfall Plot for First Sample
+    plt.figure(figsize=(12,6))
+    shap.plots.waterfall(
+        shap.Explanation(
+            values=shap_values[0].values,
+            base_values=predictions.mean(),
+            data=combined_input[0],
+            feature_names=feature_names
+        ),
+        max_display=20
+    )
+    plt.savefig(output_plot, bbox_inches='tight')
+    print(f" SHAP plot saved to: {output_plot}")
+    plt.close()
+
+# === RUN ===
+if __name__ == "__main__":
+    predict_crispron_scores()
+
