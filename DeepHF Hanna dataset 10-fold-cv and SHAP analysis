@@ -1,0 +1,342 @@
+# This notebook is based on the 10-fold-cv and SHAP analysis of deepHF model on HANNA daset.
+
+import os                #Finalllllllllllllllll DH code (2\7\2025) for 10-fold-cv on Hanna dataset
+import time
+import random
+import pandas as pd
+import numpy as np
+import tensorflow as tf
+from sklearn.model_selection import KFold
+from sklearn.metrics import mean_squared_error, r2_score
+from scipy.stats import pearsonr
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Input, Embedding, Bidirectional, LSTM, Dense, Concatenate, Flatten, Dropout
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.optimizers import Adam
+from Bio.SeqUtils import MeltingTemp as Tm
+import RNA
+
+# === Reproducibility ===
+seed = 42
+os.environ['PYTHONHASHSEED'] = str(seed)
+os.environ['TF_DETERMINISTIC_OPS'] = '1'
+random.seed(seed)
+np.random.seed(seed)
+tf.random.set_seed(seed)
+
+# === Feature Engineering ===
+def make_data(X):
+    X = [seq[:21] for seq in X]
+    vectorizer = Tokenizer(lower=False, split=" ", char_level=True)
+    vectorizer.fit_on_texts(X)
+    word_index = {'PAD': 0, 'START': 1, 'A': 2, 'T': 3, 'C': 4, 'G': 5}
+    vectorizer.word_index = word_index
+    X = vectorizer.texts_to_sequences(X)
+    X = [[1] + x for x in X]  # Add START token
+    X = pad_sequences(X, maxlen=22)
+    return np.array(X)
+
+def extract_features(data):
+    sequences = data['23mer']
+    features = []
+    for seq in sequences:
+        seq = seq.upper()[:21]
+        a = seq.count('A') / len(seq)
+        t = seq.count('T') / len(seq)
+        c = seq.count('C') / len(seq)
+        g = seq.count('G') / len(seq)
+        gc = (g + c)
+        tm_global = Tm.Tm_Wallace(seq)
+        tm_pam = Tm.Tm_Wallace(seq[-8:])
+        tm_middle = Tm.Tm_Wallace(seq[7:14])
+        _, mfe = RNA.fold(seq)
+        stem_loop = 1 if 'GG' in seq else 0
+        acc = 1 - gc / len(seq)
+        features.append([a, t, c, g, gc / len(seq), tm_global, tm_pam, tm_middle, stem_loop, mfe, acc])
+    names = ['A_Content', 'T_Content', 'C_Content', 'G_Content', 'GC_Content',
+             'Tm_Global', 'Tm_PAM_Proximal', 'Tm_Middle', 'Stem_Loop', 'Free_Energy', 'Base_Accessibility']
+    return np.clip(np.array(features), -1000, 1000), names
+
+# === Optimized DeepHF Model ===
+def build_model(seq_len=22, biofeat_dim=11):
+    seq_input = Input(shape=(seq_len,), name='seq_input')
+    embed = Embedding(input_dim=7, output_dim=64)(seq_input)
+    lstm = Bidirectional(LSTM(128, return_sequences=True))(embed)
+    lstm = Bidirectional(LSTM(64, return_sequences=True))(lstm)
+    lstm = Flatten()(lstm)
+
+    bio_input = Input(shape=(biofeat_dim,), name='bio_input')
+    dense_bio = Dense(256, activation='relu')(bio_input)
+    dense_bio = Dropout(0.3)(dense_bio)
+    dense_bio = Dense(128, activation='relu')(dense_bio)
+
+    concat = Concatenate()([lstm, dense_bio])
+    out = Dense(1, activation='linear')(concat)
+
+    model = Model(inputs=[seq_input, bio_input], outputs=out)
+    model.compile(optimizer=Adam(1e-4), loss='mse')
+    return model
+
+# === Main Runner ===
+def run_deephf_cv(input_csv):
+    df = pd.read_csv(input_csv)
+    df = df[pd.to_numeric(df['Scores DeepHF'], errors='coerce').notna()]
+    df = df[~df['Scores DeepHF'].isnull()]
+    df['21mer'] = df['23mer'].str[:21]
+
+    X_seq = make_data(df['21mer'])
+    X_bio, feature_names = extract_features(df)
+    X_bio = (X_bio - X_bio.mean(axis=0)) / X_bio.std(axis=0)
+    y = df['Scores DeepHF'].values
+
+    if np.any(np.isnan(X_bio)) or np.any(np.isnan(y)):
+        raise ValueError("NaNs detected in features or labels after preprocessing")
+
+    base_dir = os.path.join(os.path.dirname(input_csv), "10_folds_DeepHF")
+    os.makedirs(base_dir, exist_ok=True)
+
+    predictions_all = []
+    metrics = []
+  
+    print("======== PER-FOLD METRICS =========")  # 10_fold cross_validation
+    for fold, (train_idx, test_idx) in enumerate(KFold(n_splits=10, shuffle=True, random_state=42).split(X_seq), 1):
+        start_time = time.time()
+        print(f"\nTraining Fold {fold}...")
+
+        model = build_model()
+        es = EarlyStopping(monitor='loss', patience=5, restore_best_weights=True)
+
+        model.fit(
+            [X_seq[train_idx], X_bio[train_idx]], y[train_idx],
+            epochs=20, batch_size=64, verbose=1,
+            callbacks=[es]
+        )
+
+        fold_dir = os.path.join(base_dir, f"Fold{fold}")
+        os.makedirs(fold_dir, exist_ok=True)
+
+        # Save model
+        model.save(os.path.join(fold_dir, f"DeepHF_Fold{fold}_Model.h5"))
+
+        # Predictions
+        y_pred = model.predict([X_seq[test_idx], X_bio[test_idx]], verbose=0).flatten()
+        y_train_pred = model.predict([X_seq[train_idx], X_bio[train_idx]], verbose=0).flatten()
+
+        pearson = pearsonr(y[test_idx], y_pred)[0]
+        pearson_train = pearsonr(y[train_idx], y_train_pred)[0]
+        r2 = r2_score(y[test_idx], y_pred)
+        rmse = mean_squared_error(y[test_idx], y_pred, squared=False)
+        mse = mean_squared_error(y[test_idx], y_pred)
+
+        metrics.append((fold, r2, rmse, mse, pearson, pearson_train))
+
+        # Test predictions
+        test_df = pd.DataFrame(X_bio[test_idx], columns=feature_names)
+        test_df.insert(0, 'DeepHF_GT', y[test_idx])
+        test_df.insert(1, 'DeepHF_Prediction', y_pred)
+        test_df.insert(2, 'Fold', fold)
+        test_df.to_excel(os.path.join(fold_dir, f"test_predictions_fold{fold}.xlsx"), index=False)
+        test_df.to_excel(os.path.join(fold_dir, f"test_fold{fold}.xlsx"), index=False)
+
+        # Train data
+        train_df = pd.DataFrame(X_bio[train_idx], columns=feature_names)
+        train_df.insert(0, 'DeepHF_GT', y[train_idx])
+        train_df.insert(1, 'DeepHF_Prediction', y_train_pred)
+        train_df.insert(2, 'Fold', fold)
+        train_df.to_excel(os.path.join(fold_dir, f"train_fold{fold}.xlsx"), index=False)
+
+        predictions_all.append(test_df)
+        print(f" Fold {fold} completed in {(time.time() - start_time)/60:.2f} minutes")
+
+    # Final combined output
+    final_df = pd.concat(predictions_all, ignore_index=True)
+    final_output = os.path.join(base_dir, "DeepHF_10Fold_Predictions.xlsx")
+    final_df.to_excel(final_output, index=False)
+
+    print("\n========= SUMMARY METRICS =========")
+    r2s, rmses, mses, pearsons, p_trains = zip(*[(m[1], m[2], m[3], m[4], m[5]) for m in metrics])
+    print(f"        Average R2 (Test) = {np.mean(r2s):.6f}")
+    print(f"               MSE (Test) = {np.mean(mses):.6f}")
+    print(f"              RMSE (Test) = {np.mean(rmses):.6f}")
+    print(f"           Pearson (Test) = {np.mean(pearsons):.6f}")
+    print(f"  Average Pearson (Train) = {np.mean(p_trains):.6f}")
+    print(f"\nCombined predictions saved to:\n  {final_output}")
+
+# === Run Script ===
+if __name__ == "__main__":
+    run_deephf_cv("/home/faiza/vienna/mmmm/Prepared_23nt_DeepHF_Input - Copy-Hanna - Copy.csv")
+
+
+
+
+
+
+
+
+
+
+
+import os
+import pandas as pd     #Finaaaaallll  Retrained DeepHF code Hanna data set for SHAP values and water fall plots
+import numpy as np
+import tensorflow as tf
+import random
+import shap
+import matplotlib.pyplot as plt
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Input, Embedding, Bidirectional, LSTM, Dense, Concatenate, Flatten
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from Bio.SeqUtils import MeltingTemp as Tm
+from Bio.Seq import Seq
+import RNA
+from tensorflow.keras.optimizers import Adam
+
+# --- Set Seeds for Full Reproducibility ---
+seed = 42
+os.environ['PYTHONHASHSEED'] = str(seed)
+os.environ['TF_DETERMINISTIC_OPS'] = '1'
+random.seed(seed)
+np.random.seed(seed)
+tf.random.set_seed(seed)
+
+# --- Feature Engineering ---
+def make_data(X):
+    X = [seq[:21] for seq in X]  
+    vectorizer = Tokenizer(lower=False, split=" ", num_words=None, char_level=True)
+    vectorizer.fit_on_texts(X)
+    alphabet = "ATCG"
+    char_dict = {char: i + 1 for i, char in enumerate(alphabet)}
+    word_index = {k: (v + 1) for k, v in char_dict.items()}
+    word_index["PAD"] = 0
+    word_index["START"] = 1
+    vectorizer.word_index = word_index
+    X = vectorizer.texts_to_sequences(X)
+    X = [[word_index["START"]] + x for x in X]
+    X = pad_sequences(X, maxlen=22)  
+    return np.array(X)
+
+def extract_features(data):
+    sequences = data['23mer']
+    features = []
+    for seq in sequences:
+        seq = seq.upper()[:21]  
+        a_count = seq.count('A') / len(seq)
+        t_count = seq.count('T') / len(seq)
+        c_count = seq.count('C') / len(seq)
+        g_count = seq.count('G') / len(seq)
+        gc_content = (seq.count('G') + seq.count('C')) / len(seq)
+        tm_global = Tm.Tm_Wallace(seq)
+        tm_pam_proximal = Tm.Tm_Wallace(seq[-8:])
+        tm_middle = Tm.Tm_Wallace(seq[7:14])
+        ss, mfe = RNA.fold(seq)
+        stem_loop = 1 if 'GG' in seq else 0
+        free_energy = mfe
+        base_accessibility = 1 - gc_content
+        features.append([
+            a_count, t_count, c_count, g_count,
+            gc_content, tm_global, tm_pam_proximal, tm_middle,
+            stem_loop, free_energy, base_accessibility
+        ])
+    feature_names = [
+        'A_Content', 'T_Content', 'C_Content', 'G_Content',
+        'GC_Content', 'Tm_Global', 'Tm_PAM_Proximal', 'Tm_Middle',
+        'Stem_Loop', 'Free_Energy', 'Base_Accessibility'
+    ]
+    return np.array(features), feature_names
+
+# --- Model Architecture ---
+def build_model(sequence_length=22, biofeat_dim=11):
+    sequence_input = Input(shape=(sequence_length,), name='seq_input')
+    embedding = Embedding(input_dim=7, output_dim=128)(sequence_input)
+    lstm = Bidirectional(LSTM(120, return_sequences=True))(embedding)
+    lstm = Bidirectional(LSTM(64, return_sequences=True))(lstm)
+    lstm = Flatten()(lstm)
+
+    biofeat_input = Input(shape=(biofeat_dim,), name='bio_input')
+    biofeat = Dense(512, activation='relu')(biofeat_input)
+    biofeat = Dense(256, activation='relu')(biofeat)
+
+    concatenated = Concatenate()([lstm, biofeat])
+    output = Dense(1, activation='linear')(concatenated)
+
+    model = Model(inputs=[sequence_input, biofeat_input], outputs=output)
+    model.compile(optimizer=Adam(learning_rate=0.00001), loss='mse')
+    
+    return model
+
+# --- SHAP Explainer ---
+def calculate_shap_values(model, X_seq, X_biofeat):
+    def model_predict(input_data):
+        return model.predict([input_data[:, :22], input_data[:, 22:]])
+    
+    test_data = np.column_stack([X_seq, X_biofeat])
+    explainer = shap.Explainer(model_predict, test_data)
+    shap_values = explainer(test_data).values  
+    return shap_values
+
+# --- Waterfall Plot ---
+def plot_waterfall(shap_values, feature_names, pred_value, mean_value, index):
+    plt.figure(figsize=(10, 6))
+    shap.waterfall_plot(
+        shap.Explanation(
+            values=shap_values[index],  
+            base_values=mean_value,
+            feature_names=feature_names
+        )
+    )
+    plt.title(f'Waterfall Plot for Sample {index+1} (f(x) = {pred_value:.6f}, E(x) = {mean_value:.6f})')
+    plt.tight_layout()
+    plt.savefig(f'shap_waterfall_plot_{index+1}.png')
+    plt.close()
+
+# --- Main Workflow ---
+def predict_efficiencies(df):
+    df['21mer'] = df['23mer'].str[:21]
+    X_seq = make_data(df['21mer'])
+    X_biofeat, feature_names = extract_features(df)
+    
+    X_biofeat = (X_biofeat - X_biofeat.mean(axis=0)) / X_biofeat.std(axis=0)
+    
+    model = build_model()
+    model.fit(
+        [X_seq, X_biofeat], df['Scores DeepHF'].values,
+        epochs=20,
+        batch_size=32,
+        verbose=1,
+        shuffle=False
+    )
+
+    # === Save the Trained DeepHF Model ===
+    model_save_path = 'DeepHF_Retrained_Model.h5'
+    model.save(model_save_path)
+    print(f"Trained DeepHF model saved to: {model_save_path}")
+
+    df['Predicted_Efficiency'] = model.predict([X_seq, X_biofeat]).flatten()
+    
+    shap_values = calculate_shap_values(model, X_seq, X_biofeat)
+    mean_value = df['Predicted_Efficiency'].mean()
+    
+    for i, feature in enumerate(feature_names):
+        df[feature] = X_biofeat[:, i]
+    for i, feature in enumerate(feature_names):
+        df[f'{feature}_SHAP'] = shap_values[:, -11 + i]
+
+    for i in range(2):
+        plot_waterfall(shap_values[:, -11:], feature_names, df['Predicted_Efficiency'][i], mean_value, i)
+    
+    output_file = 'Predicted_Efficiencies_Perfect_Match_Final.csv'
+    df.to_csv(output_file, index=False)
+    print(f"Predictions saved to {output_file}")
+    print("\nFinal Results:")
+    print(df[['23mer', 'Scores DeepHF', '21mer', 'Predicted_Efficiency'] + feature_names + [f'{feature}_SHAP' for feature in feature_names]])
+
+if __name__ == "__main__":
+    input_file = "/home/faiza/vienna/mmmm/Prepared_23nt_DeepHF_Input - Copy-Hanna - Copy.csv"
+    df_input = pd.read_csv(input_file)
+    predict_efficiencies(df_input)
+
+
+
