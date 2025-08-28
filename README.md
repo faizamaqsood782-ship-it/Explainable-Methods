@@ -2,7 +2,7 @@
 
 # Prediction and Explainability through CRISPRedict ,CRISPRAidit, deepHF and CRISPROn on Knockout and Hanna Datasets
 
-This repository contains a reproducible pipeline for predicting CRISPR-Cas9 cleavage efficiency and interpreting model predictions using CRISPRedict, CRISPRAidit, DeepHF and CRISPROn on the **Knockout dataset** and **Hanna dataset**. The workflow includes feature extraction, model prediction, and SHAP-based explainability using a trained statsmodels regressor.
+This repository contains a reproducible pipeline for predicting CRISPR-Cas9 cleavage efficiency and interpreting model predictions using CRISPRedict, CRISPRAidit, DeepHF and CRISPROn on the **Knockout** and **Hanna datasets** respectively. The workflow includes feature extraction, model prediction, and SHAP-based explainability using a trained statsmodels regressor.
 
 ---
 
