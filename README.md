@@ -33,7 +33,7 @@ You can find it under: `data/30nt crispredict scores data.csv`, `63nt CRISPRAidi
 
 The notebook performs the following steps:
 
-1. Load the Knockout and Hanna datasets  
+1. Load the Knockout data with indel effecincies and Hanna dataset with original BE39:MELJUSO:zscore used as a ground truth in this work. 
 2. Automatically detect the gRNA sequence column  
 3. Extract CRISPRedict, CRISPRAidit, deepHF and CRISPROn relevant biological features using original `features.py` logic.
 4. Predict cleavage efficiency scores using a pre-trained statsmodels model  
